@@ -80,7 +80,7 @@ int main() {
         MotorControls[i].encoder_queue = xQueueCreate(1, sizeof(float));
 
         xTaskCreate(encoder_task, "ENCODER", 256, &MotorControls[i], 1, NULL);
-        xTaskCreate(motor_task, "MOTOR", 256, &MotorControls[i], 1, NULL);
+        xTaskCreate(motor_task, "MOTOR", 256, &MotorControls[i], 2, NULL);
     }
 
     vTaskStartScheduler();
