@@ -1,5 +1,6 @@
 // Pico 2W includes
 #include "pico/stdlib.h"
+#include "hardware/pwm.h"
 
 // FreeRTOS includes
 extern "C" {

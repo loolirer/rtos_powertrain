@@ -68,6 +68,7 @@ target_link_libraries(FreeRTOS_Pico2W
         hardware_timer
         hardware_watchdog
         hardware_clocks
+        hardware_pwm
         pico_cyw43_arch_lwip_sys_freertos
         )
 
