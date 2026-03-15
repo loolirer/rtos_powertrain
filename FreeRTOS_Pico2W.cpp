@@ -24,7 +24,7 @@ extern "C" {
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define N_MOTORS 2
-#define TICKS_PER_REV 180.0f 
+#define TICKS_PER_REV 360.0f 
 #define PI 3.1415926535f
 typedef struct {
     int motor_id;
@@ -48,12 +48,23 @@ MotorConfig_t MotorControls[N_MOTORS];
 
 void encoder_isr(uint gpio, uint32_t events) {
     for (int i = 0; i < N_MOTORS; i++) {
-        if (gpio == MotorControls[i].enc_a_pin) {
+        if (gpio == MotorControls[i].enc_a_pin || gpio == MotorControls[i].enc_b_pin) {
             
-            if (gpio_get(MotorControls[i].enc_a_pin) == gpio_get(MotorControls[i].enc_b_pin)) {
-                MotorControls[i].encoder_ticks--;
+            bool a_state = gpio_get(MotorControls[i].enc_a_pin);
+            bool b_state = gpio_get(MotorControls[i].enc_b_pin);
+
+            if (gpio == MotorControls[i].enc_a_pin) {
+                if (a_state == b_state) {
+                    MotorControls[i].encoder_ticks--;
+                } else {
+                    MotorControls[i].encoder_ticks++;
+                }
             } else {
-                MotorControls[i].encoder_ticks++;
+                if (a_state == b_state) {
+                    MotorControls[i].encoder_ticks++;
+                } else {
+                    MotorControls[i].encoder_ticks--;
+                }
             }
             
             break;
@@ -230,6 +241,10 @@ void init_motor_hardware() {
                                  GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
                                  true);
         }
+
+        gpio_set_irq_enabled(MotorControls[i].enc_b_pin, 
+                             GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
+                             true);
 
         gpio_set_function(MotorControls[i].pwm_fwd_pin, GPIO_FUNC_PWM);
         gpio_set_function(MotorControls[i].pwm_rev_pin, GPIO_FUNC_PWM);
