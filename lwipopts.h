@@ -1,28 +1,22 @@
-#ifndef _LWIPOPTS_EXAMPLE_COMMONH_H
-#define _LWIPOPTS_EXAMPLE_COMMONH_H
+#ifndef _LWIPOPTS_H
+#define _LWIPOPTS_H
 
 
-// Common settings used in most of the pico_w examples
-// (see https://www.nongnu.org/lwip/2_1_x/group__lwip__opts.html for details)
+#include "pico/stdlib.h"
 
-// allow override in some examples
-#ifndef NO_SYS
-#define NO_SYS                      0
-#endif
-// allow override in some examples
-#ifndef LWIP_SOCKET
+#define TCPIP_THREAD_PRIO   2
+#define TCPIP_THREAD_STACKSIZE 2048
+#define DEFAULT_THREAD_STACKSIZE 1024
+#define DEFAULT_RAW_RECVMBOX_SIZE 8
+#define TCPIP_MBOX_SIZE 8
+#define LWIP_TIMEVAL_PRIVATE 0
+
 #define LWIP_SOCKET                 1
-#endif
-#if PICO_CYW43_ARCH_POLL
-#define MEM_LIBC_MALLOC             1
-#else
-// MEM_LIBC_MALLOC is incompatible with non polling versions
+
 #define MEM_LIBC_MALLOC             0
-#endif
+
 #define MEM_ALIGNMENT               4
-#ifndef MEM_SIZE
 #define MEM_SIZE                    4000
-#endif
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          10
 #define PBUF_POOL_SIZE              24
@@ -36,7 +30,6 @@
 #define TCP_SND_QUEUELEN            ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
 #define LWIP_NETIF_STATUS_CALLBACK  1
 #define LWIP_NETIF_LINK_CALLBACK    1
-#define OS_REPLACE_RECV_CALLBACK    1
 #define LWIP_NETIF_HOSTNAME         1
 #define LWIP_NETCONN                1
 #define MEM_STATS                   0
@@ -52,14 +45,25 @@
 #define LWIP_DNS                    1
 #define LWIP_TCP_KEEPALIVE          1
 #define LWIP_NETIF_TX_SINGLE_PBUF   1
-#define DHCP_DOES_ARP_CHECK         0
+#define DHCP_DOES_ARP_CHECK         1
 #define LWIP_DHCP_DOES_ACD_CHECK    0
 
-#ifndef NDEBUG
+// #ifndef NDEBUG
 #define LWIP_DEBUG                  1
 #define LWIP_STATS                  1
 #define LWIP_STATS_DISPLAY          1
-#endif
+// #endif
+
+// Define the LWIP debug flags
+#define LWIP_DBG_ON      0x80U
+#define LWIP_DBG_OFF     0x00U
+#define LWIP_DBG_TRACE   0x40U
+#define LWIP_DBG_STATE   0x20U
+#define LWIP_DBG_FRESH   0x10U
+
+// A global "all debug types on" flag; not quite sure how this is used yet
+#define LWIP_DBG_TYPES_ON (LWIP_DBG_ON | LWIP_DBG_TRACE | LWIP_DBG_STATE | LWIP_DBG_FRESH)
+
 
 #define ETHARP_DEBUG                LWIP_DBG_OFF
 #define NETIF_DEBUG                 LWIP_DBG_OFF
@@ -89,5 +93,26 @@
 #define PPP_DEBUG                   LWIP_DBG_OFF
 #define SLIP_DEBUG                  LWIP_DBG_OFF
 #define DHCP_DEBUG                  LWIP_DBG_OFF
+#define SNTP_DEBUG                  LWIP_DBG_OFF
 
-#endif /* __LWIPOPTS_H__ */
+
+#define DEFAULT_TCP_RECVMBOX_SIZE 128
+#define DEFAULT_UDP_RECVMBOX_SIZE 8
+
+#define SNTP_SUPPORT      1
+#define SNTP_SERVER_DNS   1
+void sntpSetTimeSec(uint32_t sec);
+#define SNTP_SET_SYSTEM_TIME(sec) sntpSetTimeSec(sec)
+//MEMP_NUM_SYS_TIMEOUTS Needs to be one larger than default for SNTP
+#define MEMP_NUM_SYS_TIMEOUT            (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 1)
+
+// SNTP updates automatically using a timer managed internall by the LWIP stack
+#define SNTP_UPDATE_DELAY 60*60*1000
+
+// #define CYW43_VDEBUG(...) printf(__VA_ARGS__)
+#define CYW43_VERBOSE_DEBUG 1
+#define CYW43_DEBUG
+#define CYW43_INFO
+#define PICO_CYW43_ARCH_DEBUG_ENABLED 1
+
+#endif

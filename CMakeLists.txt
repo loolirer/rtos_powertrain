@@ -68,7 +68,7 @@ target_link_libraries(FreeRTOS_Pico2W
         hardware_timer
         hardware_watchdog
         hardware_clocks
-        pico_cyw43_arch_lwip_threadsafe_background
+        pico_cyw43_arch_lwip_sys_freertos
         )
 
 pico_add_extra_outputs(FreeRTOS_Pico2W)
