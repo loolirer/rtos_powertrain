@@ -43,7 +43,7 @@ MotorConfig_t MotorControls[N_MOTORS];
 // angular velocity to the specific motor's queue
 void setpoint_task(void *pvParameters) {
     MotorConfig_t *motors = (MotorConfig_t *)pvParameters;
-    float phi_dots[2] = {0.0f, 0.0f};
+    float phi_dots[N_MOTORS];
 
     if (cyw43_arch_init()) {
         printf("[%s] WiFi init failed\n", SETPOINT_TASK);
@@ -67,27 +67,36 @@ void setpoint_task(void *pvParameters) {
 
     bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
-    char buffer[128];
+    uint8_t buffer[128]; 
     struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
     printf("[%s] Listening for setpoints on UDP port %d...\n", SETPOINT_TASK, PORT);
 
     for ( ; ; ) {
-        int len = recvfrom(sock, buffer, sizeof(buffer) - 1, 0, (struct sockaddr *)&client_addr, &addr_len);
+        int len = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
                            
         if (len > 0) {
-            buffer[len] = '\0';
-            
-            int parsed = sscanf(buffer, "%f %f", &phi_dots[0], &phi_dots[1]);
-            if (parsed == 2) {
-                printf("[%s] Motor 0: %.2f rad/s | Motor 1: %.2f rad/s\n", SETPOINT_TASK, phi_dots[0], phi_dots[1]);
+            if (len % sizeof(float) != 0) {
+                printf("[%s] Ignored corrupted packet: %d bytes is not a clean float array.\n", SETPOINT_TASK, len);
+                continue; 
+            }
+
+            int num_received_setpoints = len / sizeof(float);
+            float *received_setpoints = (float *)buffer;
+
+            if (num_received_setpoints == N_MOTORS) {
                 
-                xQueueSend(motors[0].setpoint_queue, &phi_dots[0], 0U);
-                xQueueSend(motors[1].setpoint_queue, &phi_dots[1], 0U);
+                printf("[%s]", SETPOINT_TASK);
+                for (int i = 0; i < N_MOTORS; i++) {
+                    printf("M%d: %.2f | ", i, received_setpoints[i]);
+                    
+                    xQueueSend(motors[i].setpoint_queue, &received_setpoints[i], 0U);
+                }
+                printf("\n");
 
             } else {
-                printf("[%s] Ignored invalid UDP packet: '%s'.\n", SETPOINT_TASK, buffer);
+                printf("[%s] Size Mismatch! Expected %d floats, got %d.\n", SETPOINT_TASK, N_MOTORS, num_received_setpoints);
             }
         }
     }
