@@ -1,6 +1,7 @@
 // Pico 2W includes
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
+#include "hardware/gpio.h"
 
 // FreeRTOS includes
 extern "C" {
@@ -23,7 +24,7 @@ extern "C" {
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define N_MOTORS 2
-#define TICKS_PER_REV 330.0f 
+#define TICKS_PER_REV 180.0f 
 #define PI 3.1415926535f
 typedef struct {
     int motor_id;
@@ -34,10 +35,13 @@ typedef struct {
     float Kd;
     float dt;
     int dt_ms;
+    volatile long encoder_ticks;
     uint enc_a_pin;
     uint enc_b_pin;
-    volatile long encoder_ticks;
-    QueueHandle_t encoder_queue;
+    uint pwm_fwd_pin;
+    uint pwm_rev_pin;
+    uint pwm_slice_fwd;
+    uint pwm_slice_rev;
     QueueHandle_t setpoint_queue;
 } MotorConfig_t;
 MotorConfig_t MotorControls[N_MOTORS];
@@ -148,6 +152,12 @@ void motor_controller_task(void *pvParameters) {
         float revolutions = (float)delta_ticks / TICKS_PER_REV;
         MotorConfig->measured_speed = (revolutions * 2.0f * PI) / MotorConfig->dt;
 
+        if (MotorConfig->motor_id == 0) {
+            printf("[%s_%d] Speed: %f \n", 
+               MOTOR_CONTROLLER_TASK, MotorConfig->motor_id, 
+               MotorConfig->measured_speed);
+        }
+        
         error = MotorConfig->target_speed - MotorConfig->measured_speed;
         float P = MotorConfig->Kp * error;
         accumulated_error = accumulated_error + (error * MotorConfig->dt);
@@ -173,33 +183,44 @@ void motor_controller_task(void *pvParameters) {
     }
 }
 
-int main() {
-    stdio_init_all(); // From Pico stdlib
+void init_motor_hardware() {
+    int dt_ms = 10;
+    float dt = float(dt_ms) / 1000.0f;
 
+    MotorControls[0].motor_id = 0;
     MotorControls[0].enc_a_pin = 6;
-    MotorControls[0].enc_b_pin = 7;
-    MotorControls[1].enc_a_pin = 8;
+    MotorControls[0].enc_b_pin = 5;
+    MotorControls[0].pwm_fwd_pin = 0;
+    MotorControls[0].pwm_rev_pin = 1;
+    MotorControls[0].Kp = 1.5f; 
+    MotorControls[0].Ki = 0.1f;
+    MotorControls[0].Kd = 0.0f;
+    MotorControls[0].dt_ms = dt_ms;
+    MotorControls[0].dt = dt;
+
+    MotorControls[1].motor_id = 1;
+    MotorControls[1].enc_a_pin = 10;
     MotorControls[1].enc_b_pin = 9;
+    MotorControls[1].pwm_fwd_pin = 2;
+    MotorControls[1].pwm_rev_pin = 3;
+    MotorControls[1].Kp = 1.5f; 
+    MotorControls[1].Ki = 0.1f;
+    MotorControls[1].Kd = 0.0f;
+    MotorControls[1].dt_ms = dt_ms;
+    MotorControls[1].dt = dt;
 
-    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
     for(int i = 0; i < N_MOTORS; i++) {
-        MotorControls[i].motor_id = i;
-        MotorControls[i].target_speed = 0.0f;
-        MotorControls[i].measured_speed = 0.0f;
-        MotorControls[i].Kp = 5.0f;
-        MotorControls[i].Ki = 2.0f;
-        MotorControls[i].Kd = 0.0f;
-        MotorControls[i].dt_ms = 10;
-        MotorControls[i].dt = float(MotorControls[i].dt_ms) / 1000.0f;
         MotorControls[i].setpoint_queue = xQueueCreate(1, sizeof(float));
-
         MotorControls[i].encoder_ticks = 0;
+
         gpio_init(MotorControls[i].enc_a_pin);
         gpio_set_dir(MotorControls[i].enc_a_pin, GPIO_IN);
         gpio_pull_up(MotorControls[i].enc_a_pin);
+        
         gpio_init(MotorControls[i].enc_b_pin);
         gpio_set_dir(MotorControls[i].enc_b_pin, GPIO_IN);
         gpio_pull_up(MotorControls[i].enc_b_pin);
+
         if (i == 0) {
             gpio_set_irq_enabled_with_callback(MotorControls[i].enc_a_pin, 
                                                GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
@@ -209,9 +230,34 @@ int main() {
                                  GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
                                  true);
         }
-        MotorControls[i].encoder_queue = xQueueCreate(1, sizeof(float));
-        xTaskCreate(motor_controller_task, "MOTOR", 256, &MotorControls[i], 2, NULL);
+
+        gpio_set_function(MotorControls[i].pwm_fwd_pin, GPIO_FUNC_PWM);
+        gpio_set_function(MotorControls[i].pwm_rev_pin, GPIO_FUNC_PWM);
+
+        MotorControls[i].pwm_slice_fwd = pwm_gpio_to_slice_num(MotorControls[i].pwm_fwd_pin);
+        MotorControls[i].pwm_slice_rev = pwm_gpio_to_slice_num(MotorControls[i].pwm_rev_pin);
+
+        pwm_set_clkdiv(MotorControls[i].pwm_slice_fwd, 1.25f);
+        pwm_set_wrap(MotorControls[i].pwm_slice_fwd, 10000);
+        
+        pwm_set_clkdiv(MotorControls[i].pwm_slice_rev, 1.25f);
+        pwm_set_wrap(MotorControls[i].pwm_slice_rev, 10000);
+
+        pwm_set_gpio_level(MotorControls[i].pwm_fwd_pin, 0);
+        pwm_set_gpio_level(MotorControls[i].pwm_rev_pin, 0);
+
+        pwm_set_enabled(MotorControls[i].pwm_slice_fwd, true);
+        pwm_set_enabled(MotorControls[i].pwm_slice_rev, true);
+
+        xTaskCreate(motor_controller_task, "MOTOR", 512, &MotorControls[i], 2, NULL);
     }
+}
+
+int main() {
+    stdio_init_all(); // From Pico stdlib
+
+    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
+    init_motor_hardware();
 
     vTaskStartScheduler();
 
