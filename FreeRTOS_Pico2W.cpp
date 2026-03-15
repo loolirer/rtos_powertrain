@@ -15,6 +15,7 @@ extern "C" {
 }
 
 // Standard includes
+#include <math.h>
 #include <stdio.h>
 
 #define SETPOINT_TASK "WIFI_SETPOINT"
@@ -181,10 +182,20 @@ void motor_controller_task(void *pvParameters) {
         if (control_signal > 100.0f) control_signal = 100.0f;
         if (control_signal < -100.0f) control_signal = -100.0f;
 
-        //TODO: PWM LOGIC
-        //printf("[%s_%d] Target: %.2f | Measured: %.2f | PWM Output: %.2f\n", 
-        //       MOTOR_CONTROLLER_TASK, MotorConfig->motor_id, 
-        //       MotorConfig->target_speed, MotorConfig->measured_speed, control_signal);
+        uint16_t duty_cycle = (uint16_t)(fabs(control_signal) * 100.0f);
+
+        if (control_signal > 0.0f) {
+            pwm_set_gpio_level(MotorConfig->pwm_fwd_pin, duty_cycle);
+            pwm_set_gpio_level(MotorConfig->pwm_rev_pin, 0);
+            
+        } else if (control_signal < 0.0f) {
+            pwm_set_gpio_level(MotorConfig->pwm_fwd_pin, 0);
+            pwm_set_gpio_level(MotorConfig->pwm_rev_pin, duty_cycle);
+            
+        } else {
+            pwm_set_gpio_level(MotorConfig->pwm_fwd_pin, 0);
+            pwm_set_gpio_level(MotorConfig->pwm_rev_pin, 0);
+        }
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
