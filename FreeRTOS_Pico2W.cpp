@@ -205,6 +205,9 @@ void init_motor_hardware() {
     int dt_ms = 10;
     float dt = float(dt_ms) / 1000.0f;
     float alpha = 0.25f;
+    float Kp = 1.5f;
+    float Ki = 0.1f;
+    float Kd = 0.0f;
 
     MotorControls[0].motor_id = 0;
     MotorControls[0].enc_a_pin = 6;
@@ -212,9 +215,9 @@ void init_motor_hardware() {
     MotorControls[0].pwm_fwd_pin = 0;
     MotorControls[0].pwm_rev_pin = 1;
     MotorControls[0].alpha = alpha;
-    MotorControls[0].Kp = 1.5f; 
-    MotorControls[0].Ki = 0.1f;
-    MotorControls[0].Kd = 0.0f;
+    MotorControls[0].Kp = Kp; 
+    MotorControls[0].Ki = Ki;
+    MotorControls[0].Kd = Kd;
     MotorControls[0].dt_ms = dt_ms;
     MotorControls[0].dt = dt;
 
@@ -224,9 +227,9 @@ void init_motor_hardware() {
     MotorControls[1].pwm_fwd_pin = 2;
     MotorControls[1].pwm_rev_pin = 3;
     MotorControls[1].alpha = alpha;
-    MotorControls[1].Kp = 1.5f; 
-    MotorControls[1].Ki = 0.1f;
-    MotorControls[1].Kd = 0.0f;
+    MotorControls[1].Kp = Kp; 
+    MotorControls[1].Ki = Ki;
+    MotorControls[1].Kd = Kd;
     MotorControls[1].dt_ms = dt_ms;
     MotorControls[1].dt = dt;
 
