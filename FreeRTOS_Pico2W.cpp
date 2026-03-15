@@ -59,15 +59,15 @@ void encoder_isr(uint gpio, uint32_t events) {
 
             if (gpio == MotorControls[i].enc_a_pin) {
                 if (a_state == b_state) {
-                    MotorControls[i].encoder_ticks--;
-                } else {
                     MotorControls[i].encoder_ticks++;
+                } else {
+                    MotorControls[i].encoder_ticks--;
                 }
-            } else {
+            } else if (gpio == MotorControls[i].enc_b_pin) {
                 if (a_state == b_state) {
-                    MotorControls[i].encoder_ticks++;
-                } else {
                     MotorControls[i].encoder_ticks--;
+                } else {
+                    MotorControls[i].encoder_ticks++;
                 }
             }
             
