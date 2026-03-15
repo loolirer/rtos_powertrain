@@ -23,6 +23,8 @@ extern "C" {
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define N_MOTORS 2
+#define TICKS_PER_REV 330.0f 
+#define PI 3.1415926535f
 typedef struct {
     int motor_id;
     float target_speed;
@@ -32,12 +34,28 @@ typedef struct {
     float Kd;
     float dt;
     int dt_ms;
+    uint enc_a_pin;
+    uint enc_b_pin;
+    volatile long encoder_ticks;
     QueueHandle_t encoder_queue;
     QueueHandle_t setpoint_queue;
 } MotorConfig_t;
 MotorConfig_t MotorControls[N_MOTORS];
 
-#define ENCODER_TASK "ENCODER"
+void encoder_isr(uint gpio, uint32_t events) {
+    for (int i = 0; i < N_MOTORS; i++) {
+        if (gpio == MotorControls[i].enc_a_pin) {
+            
+            if (gpio_get(MotorControls[i].enc_a_pin) == gpio_get(MotorControls[i].enc_b_pin)) {
+                MotorControls[i].encoder_ticks--;
+            } else {
+                MotorControls[i].encoder_ticks++;
+            }
+            
+            break;
+        }
+    }
+}
 
 // Receives UDP string, parses to floats, and routes desired 
 // angular velocity to the specific motor's queue
@@ -102,10 +120,11 @@ void setpoint_task(void *pvParameters) {
     }
 }
 
-// Actuate on motor
+// Reads the encoder, calculates speed, and actuates the motor
 void motor_controller_task(void *pvParameters) {
     MotorConfig_t *MotorConfig = (MotorConfig_t *)pvParameters;
-
+    
+    long previous_ticks = 0;
     float received_setpoint = 0.0f;
 
     float error = 0.0f;
@@ -121,7 +140,13 @@ void motor_controller_task(void *pvParameters) {
         if(xQueueReceive(MotorConfig->setpoint_queue, &received_setpoint, 0U) == pdPASS) {
             MotorConfig->target_speed = received_setpoint;
         }
-        xQueueReceive(MotorConfig->encoder_queue, &MotorConfig->measured_speed, 0U);
+
+        long current_ticks = MotorConfig->encoder_ticks;
+        long delta_ticks = current_ticks - previous_ticks;
+        previous_ticks = current_ticks;
+
+        float revolutions = (float)delta_ticks / TICKS_PER_REV;
+        MotorConfig->measured_speed = (revolutions * 2.0f * PI) / MotorConfig->dt;
 
         error = MotorConfig->target_speed - MotorConfig->measured_speed;
         float P = MotorConfig->Kp * error;
@@ -140,29 +165,21 @@ void motor_controller_task(void *pvParameters) {
         if (control_signal < -100.0f) control_signal = -100.0f;
 
         //TODO: PWM LOGIC
-        
-        printf("[%s_%d] Target: %.2f | Measured: %.2f | PWM Output: %.2f\n", 
-               MOTOR_CONTROLLER_TASK, MotorConfig->motor_id, 
-               MotorConfig->target_speed, MotorConfig->measured_speed, control_signal);
+        //printf("[%s_%d] Target: %.2f | Measured: %.2f | PWM Output: %.2f\n", 
+        //       MOTOR_CONTROLLER_TASK, MotorConfig->motor_id, 
+        //       MotorConfig->target_speed, MotorConfig->measured_speed, control_signal);
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
-// Reads encoder and sends the angular velocity 
-// of the wheel in rad/s
-void encoder_task(void *pvParameters) {
-    float phi_dot = 0.0f;
-    MotorConfig_t *MotorConfig = (MotorConfig_t *)pvParameters;
-
-    for( ; ; ) {
-        xQueueSend(MotorConfig->encoder_queue, &phi_dot, 0U);
-        vTaskDelay(100);
-    }
-}
-
 int main() {
     stdio_init_all(); // From Pico stdlib
+
+    MotorControls[0].enc_a_pin = 6;
+    MotorControls[0].enc_b_pin = 7;
+    MotorControls[1].enc_a_pin = 8;
+    MotorControls[1].enc_b_pin = 9;
 
     xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
     for(int i = 0; i < N_MOTORS; i++) {
@@ -175,8 +192,24 @@ int main() {
         MotorControls[i].dt_ms = 10;
         MotorControls[i].dt = float(MotorControls[i].dt_ms) / 1000.0f;
         MotorControls[i].setpoint_queue = xQueueCreate(1, sizeof(float));
+
+        MotorControls[i].encoder_ticks = 0;
+        gpio_init(MotorControls[i].enc_a_pin);
+        gpio_set_dir(MotorControls[i].enc_a_pin, GPIO_IN);
+        gpio_pull_up(MotorControls[i].enc_a_pin);
+        gpio_init(MotorControls[i].enc_b_pin);
+        gpio_set_dir(MotorControls[i].enc_b_pin, GPIO_IN);
+        gpio_pull_up(MotorControls[i].enc_b_pin);
+        if (i == 0) {
+            gpio_set_irq_enabled_with_callback(MotorControls[i].enc_a_pin, 
+                                               GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
+                                               true, &encoder_isr);
+        } else {
+            gpio_set_irq_enabled(MotorControls[i].enc_a_pin, 
+                                 GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
+                                 true);
+        }
         MotorControls[i].encoder_queue = xQueueCreate(1, sizeof(float));
-        xTaskCreate(encoder_task, "ENCODER", 256, &MotorControls[i], 1, NULL);
         xTaskCreate(motor_controller_task, "MOTOR", 256, &MotorControls[i], 2, NULL);
     }
 
