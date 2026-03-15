@@ -30,6 +30,7 @@ typedef struct {
     int motor_id;
     float target_speed;
     float measured_speed;
+    float alpha;
     float Kp;
     float Ki;
     float Kd;
@@ -161,13 +162,8 @@ void motor_controller_task(void *pvParameters) {
         previous_ticks = current_ticks;
 
         float revolutions = (float)delta_ticks / TICKS_PER_REV;
-        MotorConfig->measured_speed = (revolutions * 2.0f * PI) / MotorConfig->dt;
-
-        if (MotorConfig->motor_id == 0) {
-            printf("[%s_%d] Speed: %f \n", 
-               MOTOR_CONTROLLER_TASK, MotorConfig->motor_id, 
-               MotorConfig->measured_speed);
-        }
+        float raw_speed = (revolutions * 2.0f * PI) / MotorConfig->dt;
+        MotorConfig->measured_speed = (MotorConfig->alpha * raw_speed) + ((1.0f - MotorConfig->alpha) * MotorConfig->measured_speed);
         
         error = MotorConfig->target_speed - MotorConfig->measured_speed;
         float P = MotorConfig->Kp * error;
@@ -197,12 +193,14 @@ void motor_controller_task(void *pvParameters) {
 void init_motor_hardware() {
     int dt_ms = 10;
     float dt = float(dt_ms) / 1000.0f;
+    float alpha = 0.25f;
 
     MotorControls[0].motor_id = 0;
     MotorControls[0].enc_a_pin = 6;
     MotorControls[0].enc_b_pin = 5;
     MotorControls[0].pwm_fwd_pin = 0;
     MotorControls[0].pwm_rev_pin = 1;
+    MotorControls[0].alpha = alpha;
     MotorControls[0].Kp = 1.5f; 
     MotorControls[0].Ki = 0.1f;
     MotorControls[0].Kd = 0.0f;
@@ -214,6 +212,7 @@ void init_motor_hardware() {
     MotorControls[1].enc_b_pin = 9;
     MotorControls[1].pwm_fwd_pin = 2;
     MotorControls[1].pwm_rev_pin = 3;
+    MotorControls[1].alpha = alpha;
     MotorControls[1].Kp = 1.5f; 
     MotorControls[1].Ki = 0.1f;
     MotorControls[1].Kd = 0.0f;
