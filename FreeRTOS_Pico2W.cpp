@@ -1,22 +1,20 @@
 // Pico 2W includes
 #include "pico/stdlib.h"
+#include "pico/cyw43_arch.h"
+#include "lwip/sockets.h"
 #include "hardware/pwm.h"
 #include "hardware/gpio.h"
 
 // FreeRTOS includes
-extern "C" {
-    #include "pico/cyw43_arch.h"
-    #include "lwip/sockets.h"
-    #include <FreeRTOS.h>
-    #include <task.h>
-    #include <queue.h>
-    #include <timers.h>
-    #include <semphr.h>
-}
+#include <FreeRTOS.h>
+#include <task.h>
+#include <queue.h>
+#include <timers.h>
+#include <semphr.h>
 
 // Standard includes
 #include <math.h>
-#include <stdio.h>
+#include <stdio.h> 
 
 #define SETPOINT_TASK "WIFI_SETPOINT"
 #define WIFI_SSID "Quarto"
@@ -24,11 +22,13 @@ extern "C" {
 #define PORT 1234
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
+#define PWM_FREQ 20000
+#define CLK_DIV configCPU_CLOCK_HZ / 100000000.0f
+#define PWM_WRAP 100000000 / PWM_FREQ
 #define N_MOTORS 2
 #define TICKS_PER_REV 360.0f 
 #define LEFT 0
 #define RIGHT 1
-#define PI 3.1415926535f
 typedef struct {
     int motor_id;
     float target_speed;
@@ -150,7 +150,7 @@ void motor_controller_task(void *pvParameters) {
     float previous_error = 0.0f;
     float accumulated_error = 0.0f;
     const float integral_max = 50.0f; 
-    const float interal_min = -50.0f;
+    const float integral_min = -50.0f;
 
     const TickType_t xFrequency = pdMS_TO_TICKS(MotorConfig->dt_ms); 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -165,7 +165,7 @@ void motor_controller_task(void *pvParameters) {
         previous_ticks = current_ticks;
 
         float revolutions = (float)delta_ticks / TICKS_PER_REV;
-        float raw_speed = (revolutions * 2.0f * PI) / MotorConfig->dt;
+        float raw_speed = (revolutions * 2.0f * M_PI) / MotorConfig->dt;
         MotorConfig->measured_speed = (MotorConfig->alpha * raw_speed) + ((1.0f - MotorConfig->alpha) * MotorConfig->measured_speed);
         
         error = MotorConfig->target_speed - MotorConfig->measured_speed;
@@ -173,8 +173,8 @@ void motor_controller_task(void *pvParameters) {
         accumulated_error = accumulated_error + (error * MotorConfig->dt);
         if (accumulated_error > integral_max) {
             accumulated_error = integral_max;
-        } else if (accumulated_error < interal_min) {
-            accumulated_error = interal_min;
+        } else if (accumulated_error < integral_min) {
+            accumulated_error = integral_min;
         }
         float I = MotorConfig->Ki * accumulated_error;
         float D = MotorConfig->Kd * (error - previous_error) / MotorConfig->dt;
@@ -184,7 +184,7 @@ void motor_controller_task(void *pvParameters) {
         if (control_signal > 100.0f) control_signal = 100.0f;
         if (control_signal < -100.0f) control_signal = -100.0f;
 
-        uint16_t duty_cycle = (uint16_t)(fabs(control_signal) * 100.0f);
+        uint16_t duty_cycle = (uint16_t)(fabs(control_signal) * PWM_WRAP / 100.0f);
 
         if (control_signal > 0.0f) {
             pwm_set_gpio_level(MotorConfig->pwm_fwd_pin, duty_cycle);
@@ -208,7 +208,7 @@ void init_motor_hardware() {
     float dt = float(dt_ms) / 1000.0f;
     float alpha = 0.25f;
     float Kp = 5.0f;
-    float Ki = 1.0f;
+    float Ki = 2.5f;
     float Kd = 0.0f;
     
     MotorControls[LEFT].motor_id = LEFT;
@@ -272,11 +272,11 @@ void init_motor_hardware() {
         MotorControls[i].pwm_slice_fwd = pwm_gpio_to_slice_num(MotorControls[i].pwm_fwd_pin);
         MotorControls[i].pwm_slice_rev = pwm_gpio_to_slice_num(MotorControls[i].pwm_rev_pin);
 
-        pwm_set_clkdiv(MotorControls[i].pwm_slice_fwd, 1.25f);
-        pwm_set_wrap(MotorControls[i].pwm_slice_fwd, 10000);
-        
-        pwm_set_clkdiv(MotorControls[i].pwm_slice_rev, 1.25f);
-        pwm_set_wrap(MotorControls[i].pwm_slice_rev, 10000);
+        pwm_set_clkdiv(MotorControls[i].pwm_slice_fwd, CLK_DIV);
+        pwm_set_clkdiv(MotorControls[i].pwm_slice_rev, CLK_DIV);
+
+        pwm_set_wrap(MotorControls[i].pwm_slice_fwd, PWM_WRAP);
+        pwm_set_wrap(MotorControls[i].pwm_slice_rev, PWM_WRAP);
 
         pwm_set_gpio_level(MotorControls[i].pwm_fwd_pin, 0);
         pwm_set_gpio_level(MotorControls[i].pwm_rev_pin, 0);
