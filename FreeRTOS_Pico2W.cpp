@@ -26,6 +26,8 @@ extern "C" {
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define N_MOTORS 2
 #define TICKS_PER_REV 360.0f 
+#define LEFT 0
+#define RIGHT 1
 #define PI 3.1415926535f
 typedef struct {
     int motor_id;
@@ -205,33 +207,33 @@ void init_motor_hardware() {
     int dt_ms = 10;
     float dt = float(dt_ms) / 1000.0f;
     float alpha = 0.25f;
-    float Kp = 1.5f;
-    float Ki = 0.1f;
+    float Kp = 5.0f;
+    float Ki = 1.0f;
     float Kd = 0.0f;
+    
+    MotorControls[LEFT].motor_id = LEFT;
+    MotorControls[LEFT].enc_a_pin = 10;
+    MotorControls[LEFT].enc_b_pin = 9;
+    MotorControls[LEFT].pwm_fwd_pin = 2;
+    MotorControls[LEFT].pwm_rev_pin = 3;
+    MotorControls[LEFT].alpha = alpha;
+    MotorControls[LEFT].Kp = Kp; 
+    MotorControls[LEFT].Ki = Ki;
+    MotorControls[LEFT].Kd = Kd;
+    MotorControls[LEFT].dt_ms = dt_ms;
+    MotorControls[LEFT].dt = dt;
 
-    MotorControls[0].motor_id = 0;
-    MotorControls[0].enc_a_pin = 6;
-    MotorControls[0].enc_b_pin = 5;
-    MotorControls[0].pwm_fwd_pin = 0;
-    MotorControls[0].pwm_rev_pin = 1;
-    MotorControls[0].alpha = alpha;
-    MotorControls[0].Kp = Kp; 
-    MotorControls[0].Ki = Ki;
-    MotorControls[0].Kd = Kd;
-    MotorControls[0].dt_ms = dt_ms;
-    MotorControls[0].dt = dt;
-
-    MotorControls[1].motor_id = 1;
-    MotorControls[1].enc_a_pin = 10;
-    MotorControls[1].enc_b_pin = 9;
-    MotorControls[1].pwm_fwd_pin = 2;
-    MotorControls[1].pwm_rev_pin = 3;
-    MotorControls[1].alpha = alpha;
-    MotorControls[1].Kp = Kp; 
-    MotorControls[1].Ki = Ki;
-    MotorControls[1].Kd = Kd;
-    MotorControls[1].dt_ms = dt_ms;
-    MotorControls[1].dt = dt;
+    MotorControls[RIGHT].motor_id = RIGHT;
+    MotorControls[RIGHT].enc_a_pin = 6;
+    MotorControls[RIGHT].enc_b_pin = 5;
+    MotorControls[RIGHT].pwm_fwd_pin = 0;
+    MotorControls[RIGHT].pwm_rev_pin = 1;
+    MotorControls[RIGHT].alpha = alpha;
+    MotorControls[RIGHT].Kp = Kp; 
+    MotorControls[RIGHT].Ki = Ki;
+    MotorControls[RIGHT].Kd = Kd;
+    MotorControls[RIGHT].dt_ms = dt_ms;
+    MotorControls[RIGHT].dt = dt;
 
     for(int i = 0; i < N_MOTORS; i++) {
         MotorControls[i].setpoint_queue = xQueueCreate(1, sizeof(float));
@@ -246,13 +248,18 @@ void init_motor_hardware() {
         gpio_pull_up(MotorControls[i].enc_b_pin);
 
         if (i == 0) {
-            gpio_set_irq_enabled_with_callback(MotorControls[i].enc_a_pin, 
-                                               GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
-                                               true, &encoder_isr);
+            gpio_set_irq_enabled_with_callback(
+                MotorControls[i].enc_a_pin, 
+                GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
+                true, 
+                &encoder_isr
+            );
         } else {
-            gpio_set_irq_enabled(MotorControls[i].enc_a_pin, 
-                                 GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
-                                 true);
+            gpio_set_irq_enabled(
+                MotorControls[i].enc_a_pin, 
+                GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
+                true
+            );
         }
 
         gpio_set_irq_enabled(MotorControls[i].enc_b_pin, 
