@@ -141,5 +141,9 @@ def main():
         print("\nForce quit. Sending emergency stop command...")
         sock.sendto(struct.pack('<ff', 0.0, 0.0), (PICO_IP, PORT))
 
+    except:
+        print("\nController died. Sending emergency stop command...")
+        sock.sendto(struct.pack('<ff', 0.0, 0.0), (PICO_IP, PORT))
+
 if __name__ == "__main__":
     main()
