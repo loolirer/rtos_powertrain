@@ -17,9 +17,14 @@
 #include <stdio.h> 
 
 #define SETPOINT_TASK "WIFI_SETPOINT"
+#define TELEMETRY_TASK "WIFI_TELEMETRY"
+#define WIFI_MANAGER_TASK "WIFI_MANAGER"
 #define WIFI_SSID "Quarto"
 #define WIFI_PASSWORD "07055492"
-#define PORT 1234
+#define SETPOINT_PORT 1234
+#define TELEMETRY_PORT 4321
+#define TELEMETRY_IP "192.168.1.104"
+volatile bool wifi_connected = false;
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define PWM_FREQ 20000
@@ -47,6 +52,7 @@ typedef struct {
     uint pwm_slice_fwd;
     uint pwm_slice_rev;
     QueueHandle_t setpoint_queue;
+    QueueHandle_t telemetry_queue;
 } MotorConfig_t;
 MotorConfig_t MotorControls[N_MOTORS];
 
@@ -76,30 +82,84 @@ void encoder_isr(uint gpio, uint32_t events) {
     }
 }
 
-// Receives UDP string, parses to floats, and routes desired 
-// angular velocity to the specific motor's queue
-void setpoint_task(void *pvParameters) {
-    MotorConfig_t *motors = (MotorConfig_t *)pvParameters;
-    float phi_dots[N_MOTORS];
+void wifi_manager_task(void *pvParameters) {
+    printf("[%s] Initializing WiFi chip...\n", WIFI_MANAGER_TASK);
 
     if (cyw43_arch_init()) {
-        printf("[%s] WiFi init failed\n", SETPOINT_TASK);
+        printf("[%s] WiFi init failed! System halted.\n", WIFI_MANAGER_TASK);
         vTaskDelete(NULL);
     }
+
     cyw43_arch_enable_sta_mode();
 
-    printf("Connecting to WiFi...\n");
-    if (cyw43_arch_wifi_connect_blocking(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK)) {
-        printf("[%s] Failed to connect.\n", SETPOINT_TASK);
-        vTaskDelete(NULL);
+    for(;;) {
+        if (!wifi_connected) {
+            printf("[%s] Connecting to SSID: %s...\n", WIFI_MANAGER_TASK, WIFI_SSID);
+ 
+            if (cyw43_arch_wifi_connect_blocking(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK) == 0) {
+                printf("[%s] Connected! IP: %s\n", WIFI_MANAGER_TASK, ip4addr_ntoa(netif_ip4_addr(netif_default)));
+                wifi_connected = true;
+            } else {
+                printf("[%s] Connection failed. Retrying in 3 seconds...\n", WIFI_MANAGER_TASK);
+                vTaskDelay(pdMS_TO_TICKS(3000));
+            }
+        } else {
+            int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+            if (link_status != CYW43_LINK_UP) {
+                printf("[%s] WiFi connection lost!\n", WIFI_MANAGER_TASK);
+                wifi_connected = false;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(1000)); 
+        }
     }
-    printf("[%s] Connected! IP: %s\n", SETPOINT_TASK, ip4addr_ntoa(netif_ip4_addr(netif_default)));
+}
+
+void telemetry_task(void *pvParameters) {
+    MotorConfig_t *MotorConfig = (MotorConfig_t *)pvParameters;
+
+    while (!wifi_connected) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in dest_addr;
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(TELEMETRY_PORT);
+    dest_addr.sin_addr.s_addr = inet_addr(TELEMETRY_IP);
+
+    const TickType_t xFrequency = pdMS_TO_TICKS(10); 
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+
+    float telemetry_data[N_MOTORS];
+
+    printf("[%s] Sending to %s:%d\n", TELEMETRY_TASK, TELEMETRY_IP, TELEMETRY_PORT);
+
+    for( ; ; ) {
+        for (int i = 0; i < N_MOTORS; i++) {
+            if(xQueueReceive(MotorConfig[i].telemetry_queue, &telemetry_data[i], 0U)!= pdPASS) {
+                telemetry_data[i] = 0.0f;
+            }
+        }
+        sendto(sock, telemetry_data, sizeof(telemetry_data), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
+void setpoint_task(void *pvParameters) {
+    MotorConfig_t *motors = (MotorConfig_t *)pvParameters;
+
+    while (!wifi_connected) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    float phi_dots[N_MOTORS];
 
     struct sockaddr_in server_addr;
     int sock = socket(AF_INET, SOCK_DGRAM, 0); 
     
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
+    server_addr.sin_port = htons(SETPOINT_PORT);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
     bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
@@ -108,7 +168,7 @@ void setpoint_task(void *pvParameters) {
     struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
-    printf("[%s] Listening for setpoints on UDP port %d...\n", SETPOINT_TASK, PORT);
+    printf("[%s] Listening for setpoints on UDP port %d\n", SETPOINT_TASK, SETPOINT_PORT);
 
     for ( ; ; ) {
         int len = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
@@ -124,7 +184,7 @@ void setpoint_task(void *pvParameters) {
 
             if (num_received_setpoints == N_MOTORS) {
                 
-                printf("[%s]", SETPOINT_TASK);
+                printf("[%s] ", SETPOINT_TASK);
                 for (int i = 0; i < N_MOTORS; i++) {
                     printf("M%d: %.2f | ", i, received_setpoints[i]);
                     
@@ -139,7 +199,6 @@ void setpoint_task(void *pvParameters) {
     }
 }
 
-// Reads the encoder, calculates speed, and actuates the motor
 void motor_controller_task(void *pvParameters) {
     MotorConfig_t *MotorConfig = (MotorConfig_t *)pvParameters;
     
@@ -155,6 +214,8 @@ void motor_controller_task(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(MotorConfig->dt_ms); 
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
+    printf("[%s_%d] Initializing Controller...\n", MOTOR_CONTROLLER_TASK, MotorConfig->motor_id);
+
     for( ; ; ) {
         if(xQueueReceive(MotorConfig->setpoint_queue, &received_setpoint, 0U) == pdPASS) {
             MotorConfig->target_speed = received_setpoint;
@@ -167,6 +228,8 @@ void motor_controller_task(void *pvParameters) {
         float revolutions = (float)delta_ticks / TICKS_PER_REV;
         float raw_speed = (revolutions * 2.0f * M_PI) / MotorConfig->dt;
         MotorConfig->measured_speed = (MotorConfig->alpha * raw_speed) + ((1.0f - MotorConfig->alpha) * MotorConfig->measured_speed);
+
+        xQueueSend(MotorConfig->telemetry_queue, &MotorConfig->measured_speed, 0U);
         
         error = MotorConfig->target_speed - MotorConfig->measured_speed;
         float P = MotorConfig->Kp * error;
@@ -208,7 +271,7 @@ void init_motor_hardware() {
     float dt = float(dt_ms) / 1000.0f;
     float alpha = 0.25f;
     float Kp = 5.0f;
-    float Ki = 2.5f;
+    float Ki = 4.0f;
     float Kd = 0.0f;
     
     MotorControls[LEFT].motor_id = LEFT;
@@ -237,6 +300,7 @@ void init_motor_hardware() {
 
     for(int i = 0; i < N_MOTORS; i++) {
         MotorControls[i].setpoint_queue = xQueueCreate(1, sizeof(float));
+        MotorControls[i].telemetry_queue = xQueueCreate(1, sizeof(float));
         MotorControls[i].encoder_ticks = 0;
 
         gpio_init(MotorControls[i].enc_a_pin);
@@ -283,16 +347,18 @@ void init_motor_hardware() {
 
         pwm_set_enabled(MotorControls[i].pwm_slice_fwd, true);
         pwm_set_enabled(MotorControls[i].pwm_slice_rev, true);
-
-        xTaskCreate(motor_controller_task, "MOTOR", 512, &MotorControls[i], 2, NULL);
     }
 }
 
 int main() {
     stdio_init_all(); // From Pico stdlib
-
-    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
+    
     init_motor_hardware();
+    xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[LEFT], 4, NULL);
+    xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[RIGHT], 4, NULL);
+    xTaskCreate(wifi_manager_task, WIFI_MANAGER_TASK, 1024, NULL, 3, NULL);
+    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
+    xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, NULL);
 
     vTaskStartScheduler();
 
