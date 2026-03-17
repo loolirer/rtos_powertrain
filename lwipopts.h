@@ -12,6 +12,7 @@
 #define LWIP_TIMEVAL_PRIVATE 0
 
 #define LWIP_SOCKET                 1
+#define LWIP_SO_RCVTIMEO            1
 
 #define MEM_LIBC_MALLOC             0
 

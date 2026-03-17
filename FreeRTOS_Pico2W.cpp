@@ -11,6 +11,7 @@
 #include <queue.h>
 #include <timers.h>
 #include <semphr.h>
+#include <event_groups.h>
 
 // Standard includes
 #include <math.h>
@@ -24,9 +25,12 @@
 #define SETPOINT_PORT 1234
 #define TELEMETRY_PORT 4321
 #define TELEMETRY_IP "192.168.1.106"
+#define WIFI_CONNECTED (1 << 0)
+#define TIMEOUT_US 1000000
 volatile bool wifi_connected = false;
 TaskHandle_t setpoint_task_handle = NULL;
 TaskHandle_t telemetry_task_handle = NULL;
+EventGroupHandle_t wifi_event_group;
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define PWM_FREQ 20000
@@ -88,7 +92,7 @@ void wifi_manager_task(void *pvParameters) {
     printf("[%s] Initializing WiFi chip...\n", WIFI_MANAGER_TASK);
 
     if (cyw43_arch_init()) {
-        printf("[%s] WiFi init failed! System halted.\n", WIFI_MANAGER_TASK);
+        printf("[%s] WiFi init failed! System halted\n", WIFI_MANAGER_TASK);
         vTaskDelete(NULL);
     }
 
@@ -104,6 +108,7 @@ void wifi_manager_task(void *pvParameters) {
                 if (setpoint_task_handle != NULL) xTaskNotifyGive(setpoint_task_handle);
                 if (telemetry_task_handle != NULL) xTaskNotifyGive(telemetry_task_handle);
                 wifi_connected = true;
+                xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED);
             } else {
                 printf("[%s] Connection failed. Retrying in 3 seconds...\n", WIFI_MANAGER_TASK);
                 vTaskDelay(pdMS_TO_TICKS(3000));
@@ -113,6 +118,7 @@ void wifi_manager_task(void *pvParameters) {
             if (link_status != CYW43_LINK_UP) {
                 printf("[%s] WiFi connection lost!\n", WIFI_MANAGER_TASK);
                 wifi_connected = false;
+                xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED);
             }
 
             vTaskDelay(pdMS_TO_TICKS(1000)); 
@@ -138,6 +144,14 @@ void telemetry_task(void *pvParameters) {
     printf("[%s] Sending speed measurements to %s:%d\n", TELEMETRY_TASK, TELEMETRY_IP, TELEMETRY_PORT);
 
     for( ; ; ) {
+        xEventGroupWaitBits(
+            wifi_event_group, 
+            WIFI_CONNECTED, 
+            pdFALSE,
+            pdTRUE,   
+            portMAX_DELAY
+        );
+
         for (int i = 0; i < N_MOTORS; i++) {
             if(xQueueReceive(MotorConfig[i].telemetry_queue, &telemetry_data[i], 0U)!= pdPASS) {
                 telemetry_data[i] = 0.0f;
@@ -153,7 +167,13 @@ void setpoint_task(void *pvParameters) {
 
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     
-    int sock = socket(AF_INET, SOCK_DGRAM, 0); 
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = TIMEOUT_US;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    float timeout_setpoint = 0.0f;
+
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(SETPOINT_PORT);
@@ -168,11 +188,19 @@ void setpoint_task(void *pvParameters) {
     printf("[%s] Listening for setpoints on port %d\n", SETPOINT_TASK, SETPOINT_PORT);
 
     for ( ; ; ) {
+        xEventGroupWaitBits(
+            wifi_event_group, 
+            WIFI_CONNECTED, 
+            pdFALSE,
+            pdTRUE,   
+            portMAX_DELAY
+        );
+
         int len = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
                            
         if (len > 0) {
             if (len % sizeof(float) != 0) {
-                printf("[%s] Ignored corrupted packet: %d bytes is not a clean float array.\n", SETPOINT_TASK, len);
+                printf("[%s] Ignored corrupted packet: %d bytes is not a clean float array\n", SETPOINT_TASK, len);
                 continue; 
             }
 
@@ -190,8 +218,13 @@ void setpoint_task(void *pvParameters) {
                 printf("\n");
 
             } else {
-                printf("[%s] Size Mismatch! Expected %d floats, got %d.\n", SETPOINT_TASK, N_MOTORS, num_received_setpoints);
+                printf("[%s] Size Mismatch! Expected %d floats, got %d\n", SETPOINT_TASK, N_MOTORS, num_received_setpoints);
             }
+        } else {
+            for (int i = 0; i < N_MOTORS; i++) {
+                xQueueSend(motors[i].setpoint_queue, &timeout_setpoint, 0U);
+            }
+            printf("[%s] Timeout! Motor stopped\n", SETPOINT_TASK);
         }
     }
 }
@@ -353,6 +386,7 @@ int main() {
     init_motor_hardware();
     xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[LEFT], 4, NULL);
     xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[RIGHT], 4, NULL);
+    wifi_event_group = xEventGroupCreate();
     xTaskCreate(wifi_manager_task, WIFI_MANAGER_TASK, 1024, NULL, 3, NULL);
     xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, &setpoint_task_handle);
     xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, &telemetry_task_handle);
