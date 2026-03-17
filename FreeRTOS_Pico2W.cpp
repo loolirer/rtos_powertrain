@@ -23,8 +23,10 @@
 #define WIFI_PASSWORD "07055492"
 #define SETPOINT_PORT 1234
 #define TELEMETRY_PORT 4321
-#define TELEMETRY_IP "192.168.1.104"
+#define TELEMETRY_IP "192.168.1.106"
 volatile bool wifi_connected = false;
+TaskHandle_t setpoint_task_handle = NULL;
+TaskHandle_t telemetry_task_handle = NULL;
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define PWM_FREQ 20000
@@ -98,6 +100,9 @@ void wifi_manager_task(void *pvParameters) {
  
             if (cyw43_arch_wifi_connect_blocking(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK) == 0) {
                 printf("[%s] Connected! IP: %s\n", WIFI_MANAGER_TASK, ip4addr_ntoa(netif_ip4_addr(netif_default)));
+
+                if (setpoint_task_handle != NULL) xTaskNotifyGive(setpoint_task_handle);
+                if (telemetry_task_handle != NULL) xTaskNotifyGive(telemetry_task_handle);
                 wifi_connected = true;
             } else {
                 printf("[%s] Connection failed. Retrying in 3 seconds...\n", WIFI_MANAGER_TASK);
@@ -117,10 +122,9 @@ void wifi_manager_task(void *pvParameters) {
 
 void telemetry_task(void *pvParameters) {
     MotorConfig_t *MotorConfig = (MotorConfig_t *)pvParameters;
+    float telemetry_data[N_MOTORS];
 
-    while (!wifi_connected) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in dest_addr;
@@ -131,9 +135,7 @@ void telemetry_task(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(10); 
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
-    float telemetry_data[N_MOTORS];
-
-    printf("[%s] Sending to %s:%d\n", TELEMETRY_TASK, TELEMETRY_IP, TELEMETRY_PORT);
+    printf("[%s] Sending speed measurements to %s:%d\n", TELEMETRY_TASK, TELEMETRY_IP, TELEMETRY_PORT);
 
     for( ; ; ) {
         for (int i = 0; i < N_MOTORS; i++) {
@@ -149,15 +151,10 @@ void telemetry_task(void *pvParameters) {
 void setpoint_task(void *pvParameters) {
     MotorConfig_t *motors = (MotorConfig_t *)pvParameters;
 
-    while (!wifi_connected) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-
-    float phi_dots[N_MOTORS];
-
-    struct sockaddr_in server_addr;
-    int sock = socket(AF_INET, SOCK_DGRAM, 0); 
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     
+    int sock = socket(AF_INET, SOCK_DGRAM, 0); 
+    struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(SETPOINT_PORT);
     server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -168,7 +165,7 @@ void setpoint_task(void *pvParameters) {
     struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
-    printf("[%s] Listening for setpoints on UDP port %d\n", SETPOINT_TASK, SETPOINT_PORT);
+    printf("[%s] Listening for setpoints on port %d\n", SETPOINT_TASK, SETPOINT_PORT);
 
     for ( ; ; ) {
         int len = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
@@ -357,8 +354,8 @@ int main() {
     xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[LEFT], 4, NULL);
     xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[RIGHT], 4, NULL);
     xTaskCreate(wifi_manager_task, WIFI_MANAGER_TASK, 1024, NULL, 3, NULL);
-    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
-    xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, NULL);
+    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, &setpoint_task_handle);
+    xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, &telemetry_task_handle);
 
     vTaskStartScheduler();
 
