@@ -39,19 +39,16 @@ pico_sdk_init()
 
 add_executable(
         RTPT
-        main.c
-        freertos_callbacks.c
-        motor_config.c
-        wifi_manager.c
-        remote_interfaces.c
-        motor_control.c
+        src/main.c
+        src/freertos_callbacks.c
+        src/motor_config.c
+        src/wifi_manager.c
+        src/remote_interfaces.c
+        src/motor_control.c
 )
 
 pico_set_program_name(RTPT "RTPT")
 pico_set_program_version(RTPT "0.1")
-
-# Generate PIO header
-pico_generate_pio_header(RTPT ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(RTPT 1)
@@ -67,6 +64,7 @@ target_link_libraries(
 target_include_directories(
         RTPT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/include
 )
 
 # Add any user requested libraries

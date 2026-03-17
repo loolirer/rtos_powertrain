@@ -84,7 +84,7 @@ class XboxController:
                 self.plugged = False
 
 
-PICO_IP = "192.168.1.103"
+PICO_IP = "192.168.1.104"
 PORT = 1234
 
 max_theta_dot = 50.0 # rad/s

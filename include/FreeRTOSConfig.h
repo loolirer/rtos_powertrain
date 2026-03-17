@@ -114,7 +114,12 @@
 #define INCLUDE_xTaskResumeFromISR              1
 #define INCLUDE_xQueueGetMutexHolder            1
 
-// This example uses a common include to avoid repetition
-#include "FreeRTOSConfig_examples_common.h"
+#if PICO_RP2350
+#define configENABLE_MPU                        0
+#define configENABLE_TRUSTZONE                  0
+#define configRUN_FREERTOS_SECURE_ONLY          1
+#define configENABLE_FPU                        1
+#define configMAX_SYSCALL_INTERRUPT_PRIORITY    16
+#endif
 
 #endif
