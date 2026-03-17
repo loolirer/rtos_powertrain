@@ -13,7 +13,7 @@ void init_motor_hardware() {
     const uint8_t pwm_rev_pins[N_MOTORS] = MOTOR_PWM_REV_PINS;
     float dt = (float)CTRL_DT_MS / 1000.0f;
     
-    for(int i = 0; i < N_MOTORS; i++) {
+    for (int i = 0; i < N_MOTORS; i++) {
         MotorControls[i].motor_id = i;
         MotorControls[i].enc_a_pin = enc_a_pins[i];
         MotorControls[i].enc_b_pin = enc_b_pins[i];

@@ -21,8 +21,7 @@
 #define CTRL_KD            0.0f
 #define CTRL_INT_MAX       200.0f
 #define TICKS_PER_REV 360.0f 
-#define LEFT 0
-#define RIGHT 1
+
 typedef struct {
     int motor_id;
     float target_speed;

@@ -68,7 +68,7 @@ void setpoint_task(void *pvParameters) {
 
     printf("[%s] Listening for setpoints on port %d\n", SETPOINT_TASK, SETPOINT_PORT);
 
-    for( ; ; ) {
+    for ( ; ; ) {
         xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED, pdFALSE, pdTRUE, portMAX_DELAY);
 
         int len = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);

@@ -21,11 +21,14 @@ int main() {
     init_motor_hardware();
 
     wifi_event_group = xEventGroupCreate();
-    xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[LEFT], 4, NULL);
-    xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[RIGHT], 4, NULL);
+
     xTaskCreate(wifi_manager_task, WIFI_MANAGER_TASK, 1024, NULL, 3, &wifi_manager_handle);
     xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
     xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, NULL);
+
+    for(int i = 0; i < N_MOTORS; i++) {
+        xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[i], 4, NULL);
+    }
 
     vTaskStartScheduler();
 
