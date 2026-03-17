@@ -7,32 +7,24 @@
 #include "motor_control.h"
 
 void init_motor_hardware() {
-    MotorControls[LEFT].enc_a_pin = 10;
-    MotorControls[LEFT].enc_b_pin = 9;
-    MotorControls[LEFT].pwm_fwd_pin = 2;
-    MotorControls[LEFT].pwm_rev_pin = 3;
-
-    MotorControls[RIGHT].enc_a_pin = 6;
-    MotorControls[RIGHT].enc_b_pin = 5;
-    MotorControls[RIGHT].pwm_fwd_pin = 0;
-    MotorControls[RIGHT].pwm_rev_pin = 1;
-
-    int dt_ms = 10;
-    float dt = (float)dt_ms / 1000.0f;
-    float alpha = 0.25f;
-    float Kp = 5.0f;
-    float Ki = 4.0f;
-    float Kd = 0.0f;
-    float integral_max_effort = 200.0f;
-
+    const uint8_t enc_a_pins[N_MOTORS] = MOTOR_ENC_A_PINS;
+    const uint8_t enc_b_pins[N_MOTORS] = MOTOR_ENC_B_PINS;
+    const uint8_t pwm_fwd_pins[N_MOTORS] = MOTOR_PWM_FWD_PINS;
+    const uint8_t pwm_rev_pins[N_MOTORS] = MOTOR_PWM_REV_PINS;
+    float dt = (float)CTRL_DT_MS / 1000.0f;
+    
     for(int i = 0; i < N_MOTORS; i++) {
         MotorControls[i].motor_id = i;
-        MotorControls[i].alpha = alpha;
-        MotorControls[i].integral_max_effort = integral_max_effort;
-        MotorControls[i].Kp = Kp; 
-        MotorControls[i].Ki = Ki;
-        MotorControls[i].Kd = Kd;
-        MotorControls[i].dt_ms = dt_ms;
+        MotorControls[i].enc_a_pin = enc_a_pins[i];
+        MotorControls[i].enc_b_pin = enc_b_pins[i];
+        MotorControls[i].pwm_fwd_pin = pwm_fwd_pins[i];
+        MotorControls[i].pwm_rev_pin = pwm_rev_pins[i];
+        MotorControls[i].alpha = CTRL_ALPHA;
+        MotorControls[i].integral_max_effort = CTRL_INT_MAX;
+        MotorControls[i].Kp = CTRL_KP; 
+        MotorControls[i].Ki = CTRL_KI;
+        MotorControls[i].Kd = CTRL_KD;
+        MotorControls[i].dt_ms = CTRL_DT_MS;
         MotorControls[i].dt = dt;
         MotorControls[i].encoder_ticks = 0;
 
