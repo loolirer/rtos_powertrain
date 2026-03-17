@@ -85,6 +85,7 @@ class XboxController:
 
 
 PICO_IP = "192.168.1.104"
+TELEMETRY_IP = "0.0.0.0"
 PORT = 1234
 
 max_theta_dot = 50.0 # rad/s
@@ -126,9 +127,8 @@ def main():
             payload = struct.pack('<ff', theta_dot_L, -theta_dot_R) # Right is mirrored
 
             sock.sendto(payload, (PICO_IP, PORT))
-
-            print(f"M0 (Left): {theta_dot_L:5.2f} rad/s | M1 (Right): {theta_dot_R:5.2f} rad/s", end='\r')
-
+            sock.sendto(payload, (TELEMETRY_IP, PORT))
+            
             if XC.B == 1:
                 print("\nExiting...")
 
