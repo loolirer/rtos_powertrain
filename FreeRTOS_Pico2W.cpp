@@ -27,7 +27,8 @@
 #define TELEMETRY_PORT 4321
 #define TELEMETRY_IP "192.168.1.106"
 #define WIFI_CONNECTED (1 << 0)
-#define TIMEOUT_US 1000000
+#define TIMEOUT_S  1
+#define TIMEOUT_US 0
 TaskHandle_t wifi_manager_handle = NULL;
 EventGroupHandle_t wifi_event_group;
 
@@ -44,6 +45,7 @@ typedef struct {
     float target_speed;
     float measured_speed;
     float alpha;
+    float integral_max_effort;
     float Kp;
     float Ki;
     float Kd;
@@ -145,9 +147,7 @@ void telemetry_task(void *pvParameters) {
         xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED, pdFALSE, pdTRUE, portMAX_DELAY);
 
         for (int i = 0; i < N_MOTORS; i++) {
-            if(xQueueReceive(MotorConfig[i].telemetry_queue, &telemetry_data[i], 0U)!= pdPASS) {
-                telemetry_data[i] = 0.0f;
-            }
+            xQueuePeek(MotorConfig[i].telemetry_queue, &telemetry_data[i], 0U);
         }
         sendto(sock, telemetry_data, sizeof(telemetry_data), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -161,7 +161,7 @@ void setpoint_task(void *pvParameters) {
     
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     struct timeval timeout;
-    timeout.tv_sec = 0;
+    timeout.tv_sec = TIMEOUT_S;
     timeout.tv_usec = TIMEOUT_US;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     float timeout_setpoint = 0.0f;
@@ -199,7 +199,7 @@ void setpoint_task(void *pvParameters) {
                 for (int i = 0; i < N_MOTORS; i++) {
                     printf("M%d: %.2f | ", i, received_setpoints[i]);
                     
-                    xQueueSend(motors[i].setpoint_queue, &received_setpoints[i], 0U);
+                    xQueueOverwrite(motors[i].setpoint_queue, &received_setpoints[i]);
                 }
                 printf("\n");
 
@@ -208,7 +208,7 @@ void setpoint_task(void *pvParameters) {
             }
         } else {
             for (int i = 0; i < N_MOTORS; i++) {
-                xQueueSend(motors[i].setpoint_queue, &timeout_setpoint, 0U);
+                xQueueOverwrite(motors[i].setpoint_queue, &timeout_setpoint);
             }
             printf("[%s] Timeout! Motor stopped\n", SETPOINT_TASK);
         }
@@ -224,8 +224,7 @@ void motor_controller_task(void *pvParameters) {
     float error = 0.0f;
     float previous_error = 0.0f;
     float accumulated_error = 0.0f;
-    const float integral_max = 50.0f; 
-    const float integral_min = -50.0f;
+    float integral_max = 0.0f;
 
     const TickType_t xFrequency = pdMS_TO_TICKS(MotorConfig->dt_ms); 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -245,15 +244,21 @@ void motor_controller_task(void *pvParameters) {
         float raw_speed = (revolutions * 2.0f * M_PI) / MotorConfig->dt;
         MotorConfig->measured_speed = (MotorConfig->alpha * raw_speed) + ((1.0f - MotorConfig->alpha) * MotorConfig->measured_speed);
 
-        xQueueSend(MotorConfig->telemetry_queue, &MotorConfig->measured_speed, 0U);
+        xQueueOverwrite(MotorConfig->telemetry_queue, &MotorConfig->measured_speed);
         
         error = MotorConfig->target_speed - MotorConfig->measured_speed;
         float P = MotorConfig->Kp * error;
-        accumulated_error = accumulated_error + (error * MotorConfig->dt);
-        if (accumulated_error > integral_max) {
-            accumulated_error = integral_max;
-        } else if (accumulated_error < integral_min) {
-            accumulated_error = integral_min;
+        if (MotorConfig->Ki > 0.001f) { 
+            accumulated_error = accumulated_error + (error * MotorConfig->dt);
+            integral_max = MotorConfig->integral_max_effort / MotorConfig->Ki;
+            
+            if (accumulated_error > integral_max) {
+                accumulated_error = integral_max;
+            } else if (accumulated_error < -integral_max) {
+                accumulated_error = -integral_max;
+            }
+        } else {
+            accumulated_error = 0.0f; 
         }
         float I = MotorConfig->Ki * accumulated_error;
         float D = MotorConfig->Kd * (error - previous_error) / MotorConfig->dt;
@@ -283,41 +288,37 @@ void motor_controller_task(void *pvParameters) {
 }
 
 void init_motor_hardware() {
+    MotorControls[LEFT].enc_a_pin = 10;
+    MotorControls[LEFT].enc_b_pin = 9;
+    MotorControls[LEFT].pwm_fwd_pin = 2;
+    MotorControls[LEFT].pwm_rev_pin = 3;
+
+    MotorControls[RIGHT].enc_a_pin = 6;
+    MotorControls[RIGHT].enc_b_pin = 5;
+    MotorControls[RIGHT].pwm_fwd_pin = 0;
+    MotorControls[RIGHT].pwm_rev_pin = 1;
+
     int dt_ms = 10;
     float dt = float(dt_ms) / 1000.0f;
     float alpha = 0.25f;
     float Kp = 5.0f;
     float Ki = 4.0f;
     float Kd = 0.0f;
-    
-    MotorControls[LEFT].motor_id = LEFT;
-    MotorControls[LEFT].enc_a_pin = 10;
-    MotorControls[LEFT].enc_b_pin = 9;
-    MotorControls[LEFT].pwm_fwd_pin = 2;
-    MotorControls[LEFT].pwm_rev_pin = 3;
-    MotorControls[LEFT].alpha = alpha;
-    MotorControls[LEFT].Kp = Kp; 
-    MotorControls[LEFT].Ki = Ki;
-    MotorControls[LEFT].Kd = Kd;
-    MotorControls[LEFT].dt_ms = dt_ms;
-    MotorControls[LEFT].dt = dt;
-
-    MotorControls[RIGHT].motor_id = RIGHT;
-    MotorControls[RIGHT].enc_a_pin = 6;
-    MotorControls[RIGHT].enc_b_pin = 5;
-    MotorControls[RIGHT].pwm_fwd_pin = 0;
-    MotorControls[RIGHT].pwm_rev_pin = 1;
-    MotorControls[RIGHT].alpha = alpha;
-    MotorControls[RIGHT].Kp = Kp; 
-    MotorControls[RIGHT].Ki = Ki;
-    MotorControls[RIGHT].Kd = Kd;
-    MotorControls[RIGHT].dt_ms = dt_ms;
-    MotorControls[RIGHT].dt = dt;
+    float integral_max_effort = 200.0f;
 
     for(int i = 0; i < N_MOTORS; i++) {
+        MotorControls[i].motor_id = i;
+        MotorControls[i].alpha = alpha;
+        MotorControls[i].integral_max_effort = integral_max_effort;
+        MotorControls[i].Kp = Kp; 
+        MotorControls[i].Ki = Ki;
+        MotorControls[i].Kd = Kd;
+        MotorControls[i].dt_ms = dt_ms;
+        MotorControls[i].dt = dt;
+        MotorControls[i].encoder_ticks = 0;
+
         MotorControls[i].setpoint_queue = xQueueCreate(1, sizeof(float));
         MotorControls[i].telemetry_queue = xQueueCreate(1, sizeof(float));
-        MotorControls[i].encoder_ticks = 0;
 
         gpio_init(MotorControls[i].enc_a_pin);
         gpio_set_dir(MotorControls[i].enc_a_pin, GPIO_IN);
@@ -342,9 +343,11 @@ void init_motor_hardware() {
             );
         }
 
-        gpio_set_irq_enabled(MotorControls[i].enc_b_pin, 
-                             GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
-                             true);
+        gpio_set_irq_enabled(
+            MotorControls[i].enc_b_pin, 
+            GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, 
+            true
+        );
 
         gpio_set_function(MotorControls[i].pwm_fwd_pin, GPIO_FUNC_PWM);
         gpio_set_function(MotorControls[i].pwm_rev_pin, GPIO_FUNC_PWM);
