@@ -2,6 +2,7 @@
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "lwip/sockets.h"
+#include "lwip/netif.h"
 #include "hardware/pwm.h"
 #include "hardware/gpio.h"
 
@@ -27,9 +28,7 @@
 #define TELEMETRY_IP "192.168.1.106"
 #define WIFI_CONNECTED (1 << 0)
 #define TIMEOUT_US 1000000
-volatile bool wifi_connected = false;
-TaskHandle_t setpoint_task_handle = NULL;
-TaskHandle_t telemetry_task_handle = NULL;
+TaskHandle_t wifi_manager_handle = NULL;
 EventGroupHandle_t wifi_event_group;
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
@@ -88,6 +87,14 @@ void encoder_isr(uint gpio, uint32_t events) {
     }
 }
 
+void netif_link_callback(struct netif *netif) {
+    if (!netif_is_link_up(netif)) {
+        if (wifi_manager_handle != NULL) {
+            xTaskNotifyGive(wifi_manager_handle);
+        }
+    }
+}
+
 void wifi_manager_task(void *pvParameters) {
     printf("[%s] Initializing WiFi chip...\n", WIFI_MANAGER_TASK);
 
@@ -98,30 +105,21 @@ void wifi_manager_task(void *pvParameters) {
 
     cyw43_arch_enable_sta_mode();
 
-    for(;;) {
-        if (!wifi_connected) {
-            printf("[%s] Connecting to SSID: %s...\n", WIFI_MANAGER_TASK, WIFI_SSID);
- 
-            if (cyw43_arch_wifi_connect_blocking(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK) == 0) {
-                printf("[%s] Connected! IP: %s\n", WIFI_MANAGER_TASK, ip4addr_ntoa(netif_ip4_addr(netif_default)));
+    netif_set_link_callback(netif_default, netif_link_callback);
 
-                if (setpoint_task_handle != NULL) xTaskNotifyGive(setpoint_task_handle);
-                if (telemetry_task_handle != NULL) xTaskNotifyGive(telemetry_task_handle);
-                wifi_connected = true;
-                xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED);
-            } else {
-                printf("[%s] Connection failed. Retrying in 3 seconds...\n", WIFI_MANAGER_TASK);
-                vTaskDelay(pdMS_TO_TICKS(3000));
-            }
+    for( ; ; ) {
+        printf("[%s] Connecting to SSID: %s...\n", WIFI_MANAGER_TASK, WIFI_SSID);
+
+        if (cyw43_arch_wifi_connect_blocking(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK) == 0) {
+            printf("[%s] Connected! IP: %s\n", WIFI_MANAGER_TASK, ip4addr_ntoa(netif_ip4_addr(netif_default)));
+            xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED);
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            printf("[%s] WiFi connection lost! Preparing to reconnect...\n", WIFI_MANAGER_TASK);
+            xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED);
+            
         } else {
-            int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-            if (link_status != CYW43_LINK_UP) {
-                printf("[%s] WiFi connection lost!\n", WIFI_MANAGER_TASK);
-                wifi_connected = false;
-                xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED);
-            }
-
-            vTaskDelay(pdMS_TO_TICKS(1000)); 
+            printf("[%s] Connection failed. Retrying in 3 seconds...\n", WIFI_MANAGER_TASK);
+            vTaskDelay(pdMS_TO_TICKS(3000));
         }
     }
 }
@@ -130,7 +128,7 @@ void telemetry_task(void *pvParameters) {
     MotorConfig_t *MotorConfig = (MotorConfig_t *)pvParameters;
     float telemetry_data[N_MOTORS];
 
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED, pdFALSE, pdTRUE, portMAX_DELAY);
     
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in dest_addr;
@@ -144,13 +142,7 @@ void telemetry_task(void *pvParameters) {
     printf("[%s] Sending speed measurements to %s:%d\n", TELEMETRY_TASK, TELEMETRY_IP, TELEMETRY_PORT);
 
     for( ; ; ) {
-        xEventGroupWaitBits(
-            wifi_event_group, 
-            WIFI_CONNECTED, 
-            pdFALSE,
-            pdTRUE,   
-            portMAX_DELAY
-        );
+        xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED, pdFALSE, pdTRUE, portMAX_DELAY);
 
         for (int i = 0; i < N_MOTORS; i++) {
             if(xQueueReceive(MotorConfig[i].telemetry_queue, &telemetry_data[i], 0U)!= pdPASS) {
@@ -165,7 +157,7 @@ void telemetry_task(void *pvParameters) {
 void setpoint_task(void *pvParameters) {
     MotorConfig_t *motors = (MotorConfig_t *)pvParameters;
 
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED, pdFALSE, pdTRUE, portMAX_DELAY);
     
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     struct timeval timeout;
@@ -187,14 +179,8 @@ void setpoint_task(void *pvParameters) {
 
     printf("[%s] Listening for setpoints on port %d\n", SETPOINT_TASK, SETPOINT_PORT);
 
-    for ( ; ; ) {
-        xEventGroupWaitBits(
-            wifi_event_group, 
-            WIFI_CONNECTED, 
-            pdFALSE,
-            pdTRUE,   
-            portMAX_DELAY
-        );
+    for( ; ; ) {
+        xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED, pdFALSE, pdTRUE, portMAX_DELAY);
 
         int len = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
                            
@@ -387,9 +373,9 @@ int main() {
     xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[LEFT], 4, NULL);
     xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[RIGHT], 4, NULL);
     wifi_event_group = xEventGroupCreate();
-    xTaskCreate(wifi_manager_task, WIFI_MANAGER_TASK, 1024, NULL, 3, NULL);
-    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, &setpoint_task_handle);
-    xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, &telemetry_task_handle);
+    xTaskCreate(wifi_manager_task, WIFI_MANAGER_TASK, 1024, NULL, 3, &wifi_manager_handle);
+    xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
+    xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, NULL);
 
     vTaskStartScheduler();
 
