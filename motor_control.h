@@ -8,7 +8,6 @@
 
 #define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 
-void encoder_isr(uint gpio, uint32_t events);
 void motor_controller_task(void *pvParameters);
 
 #endif // MOTOR_CONTROL_H

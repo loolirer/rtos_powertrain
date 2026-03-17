@@ -5,7 +5,6 @@
 #include <FreeRTOS.h>
 #include <queue.h>
 
-#define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
 #define PWM_FREQ 20000
 #define CLK_DIV configCPU_CLOCK_HZ / 100000000.0f
 #define PWM_WRAP 100000000 / PWM_FREQ
@@ -14,12 +13,12 @@
 #define MOTOR_ENC_B_PINS   {9, 5}
 #define MOTOR_PWM_FWD_PINS {2, 0}
 #define MOTOR_PWM_REV_PINS {3, 1}
-#define CTRL_DT_MS         10
-#define CTRL_ALPHA         0.25f
-#define CTRL_KP            5.0f
-#define CTRL_KI            4.0f
-#define CTRL_KD            0.0f
-#define CTRL_INT_MAX       200.0f
+#define CTRL_DT_MS 10
+#define CTRL_ALPHA 0.25f
+#define CTRL_KP 5.0f
+#define CTRL_KI 4.0f
+#define CTRL_KD 0.0f
+#define CTRL_INT_MAX 200.0f
 #define TICKS_PER_REV 360.0f 
 
 typedef struct {
@@ -45,6 +44,8 @@ typedef struct {
 } MotorConfig_t;
 
 extern MotorConfig_t MotorControls[N_MOTORS];
+
+static void encoder_isr(uint gpio, uint32_t events);
 
 void init_motor_hardware(void);
 

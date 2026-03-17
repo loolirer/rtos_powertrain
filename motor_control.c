@@ -3,7 +3,6 @@
 #include <math.h>
 
 // Pico 2W includes
-#include "hardware/gpio.h"
 #include "hardware/pwm.h"
 
 // FreeRTOS includes
@@ -12,32 +11,6 @@
 
 // Custom includes
 #include "motor_control.h"
-
-void encoder_isr(uint gpio, uint32_t events) {
-    for (int i = 0; i < N_MOTORS; i++) {
-        if (gpio == MotorControls[i].enc_a_pin || gpio == MotorControls[i].enc_b_pin) {
-            
-            bool a_state = gpio_get(MotorControls[i].enc_a_pin);
-            bool b_state = gpio_get(MotorControls[i].enc_b_pin);
-
-            if (gpio == MotorControls[i].enc_a_pin) {
-                if (a_state == b_state) {
-                    MotorControls[i].encoder_ticks++;
-                } else {
-                    MotorControls[i].encoder_ticks--;
-                }
-            } else if (gpio == MotorControls[i].enc_b_pin) {
-                if (a_state == b_state) {
-                    MotorControls[i].encoder_ticks--;
-                } else {
-                    MotorControls[i].encoder_ticks++;
-                }
-            }
-            
-            break;
-        }
-    }
-}
 
 void motor_controller_task(void *pvParameters) {
     MotorConfig_t *MotorConfig = (MotorConfig_t *)pvParameters;

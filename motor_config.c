@@ -4,7 +4,32 @@
 
 // Custom includes
 #include "motor_config.h"
-#include "motor_control.h"
+
+static void encoder_isr(uint gpio, uint32_t events) {
+    for (int i = 0; i < N_MOTORS; i++) {
+        if (gpio == MotorControls[i].enc_a_pin || gpio == MotorControls[i].enc_b_pin) {
+            
+            bool a_state = gpio_get(MotorControls[i].enc_a_pin);
+            bool b_state = gpio_get(MotorControls[i].enc_b_pin);
+
+            if (gpio == MotorControls[i].enc_a_pin) {
+                if (a_state == b_state) {
+                    MotorControls[i].encoder_ticks++;
+                } else {
+                    MotorControls[i].encoder_ticks--;
+                }
+            } else if (gpio == MotorControls[i].enc_b_pin) {
+                if (a_state == b_state) {
+                    MotorControls[i].encoder_ticks--;
+                } else {
+                    MotorControls[i].encoder_ticks++;
+                }
+            }
+            
+            break;
+        }
+    }
+}
 
 void init_motor_hardware() {
     const uint8_t enc_a_pins[N_MOTORS] = MOTOR_ENC_A_PINS;
