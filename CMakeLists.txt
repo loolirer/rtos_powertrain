@@ -28,7 +28,7 @@ set(PICO_BOARD pico2_w CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(FreeRTOS_Pico2W C CXX ASM)
+project(RTPT C CXX ASM)
 
 set(PICO_CXX_ENABLE_RTTI 1)
 
@@ -37,29 +37,41 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(FreeRTOS_Pico2W FreeRTOS_Pico2W.cpp freertos_callbacks.c )
+add_executable(
+        RTPT
+        main.c
+        freertos_callbacks.c
+        motor_config.c
+        wifi_manager.c
+        remote_interfaces.c
+        motor_control.c
+)
 
-pico_set_program_name(FreeRTOS_Pico2W "FreeRTOS_Pico2W")
-pico_set_program_version(FreeRTOS_Pico2W "0.1")
+pico_set_program_name(RTPT "RTPT")
+pico_set_program_version(RTPT "0.1")
 
 # Generate PIO header
-pico_generate_pio_header(FreeRTOS_Pico2W ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
+pico_generate_pio_header(RTPT ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
 
 # Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(FreeRTOS_Pico2W 1)
-pico_enable_stdio_usb(FreeRTOS_Pico2W 1)
+pico_enable_stdio_uart(RTPT 1)
+pico_enable_stdio_usb(RTPT 1)
 
 # Add the standard library to the build
-target_link_libraries(FreeRTOS_Pico2W
-        pico_stdlib)
+target_link_libraries(
+        RTPT
+        pico_stdlib
+)
 
 # Add the standard include files to the build
-target_include_directories(FreeRTOS_Pico2W PRIVATE
+target_include_directories(
+        RTPT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
 
 # Add any user requested libraries
-target_link_libraries(FreeRTOS_Pico2W 
+target_link_libraries(
+        RTPT
         hardware_spi
         hardware_i2c
         hardware_dma
@@ -70,18 +82,19 @@ target_link_libraries(FreeRTOS_Pico2W
         hardware_clocks
         hardware_pwm
         pico_cyw43_arch_lwip_sys_freertos
-        )
+)
 
-pico_add_extra_outputs(FreeRTOS_Pico2W)
+pico_add_extra_outputs(RTPT)
 
 # Add FreeRTOS
 set(FREERTOS_KERNEL_PATH "${CMAKE_CURRENT_LIST_DIR}/FreeRTOS-Kernel-main")
 include(FreeRTOS_Kernel_import.cmake)
 
 # FREERTOS: FreeRTOSConfig.h needs to be in the include path
-target_include_directories(FreeRTOS_Pico2W PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(RTPT PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
 # Add the FreeRTOS library to the build
-target_link_libraries(FreeRTOS_Pico2W
+target_link_libraries(
+        RTPT
         FreeRTOS-Kernel-Heap4
 )
