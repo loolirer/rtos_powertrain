@@ -59,6 +59,6 @@ rtos_powertrain/
 
 ## Explanatory Video 
 
-Watch the video explaining the project [here](https://drive.google.com/drive/folders/1yYwT7XDRWtrHN2iQOrlPad8jU_huYdKD?usp=sharing) This link also hosts the presentation file as additional documentation.
+Watch the video explaining the project [here](https://drive.google.com/drive/folders/1yYwT7XDRWtrHN2iQOrlPad8jU_huYdKD?usp=sharing). This link also hosts the presentation file as additional documentation.
 
 ---
