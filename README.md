@@ -56,3 +56,9 @@ rtos_powertrain/
 ├── python/             # Python scripts for remote control and telemetry
 ├── README.md           # Project documentation
 ```
+
+## Explanatory Video 
+
+Watch the video explaining the project [here](https://drive.google.com/drive/folders/1yYwT7XDRWtrHN2iQOrlPad8jU_huYdKD?usp=sharing)
+
+---
