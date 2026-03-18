@@ -6,8 +6,8 @@
 #include <task.h>
 #include "motor_config.h"
 
-#define MOTOR_CONTROLLER_TASK "MOTOR_CONTROLLER"
+#define MOTOR_CONTROL_TIMER "MOTOR_CONTROL"
 
-void motor_controller_task(void *pvParameters);
+void start_motor_control_timer(void);
 
 #endif // MOTOR_CONTROL_H

@@ -16,15 +16,13 @@
 #define CTRL_DT_MS 10
 #define CTRL_ALPHA 0.25f
 #define CTRL_KP 5.0f
-#define CTRL_KI 4.0f
+#define CTRL_KI 10.0f
 #define CTRL_KD 0.0f
 #define CTRL_INT_MAX 200.0f
 #define TICKS_PER_REV 360.0f 
 
 typedef struct {
     int motor_id;
-    float target_speed;
-    float measured_speed;
     float alpha;
     float integral_max_effort;
     float Kp;
@@ -32,6 +30,11 @@ typedef struct {
     float Kd;
     float dt;
     int dt_ms;
+    float previous_error;
+    float accumulated_error;
+    long last_ticks;
+    volatile float target_speed;
+    volatile float measured_speed;
     volatile long encoder_ticks;
     uint enc_a_pin;
     uint enc_b_pin;

@@ -51,6 +51,11 @@ void init_motor_hardware() {
         MotorControls[i].Kd = CTRL_KD;
         MotorControls[i].dt_ms = CTRL_DT_MS;
         MotorControls[i].dt = dt;
+        MotorControls[i].previous_error = 0.0f;
+        MotorControls[i].accumulated_error = 0.0f;
+        MotorControls[i].last_ticks = 0;
+        MotorControls[i].target_speed = 0.0f;
+        MotorControls[i].measured_speed = 0.0f;
         MotorControls[i].encoder_ticks = 0;
 
         MotorControls[i].setpoint_queue = xQueueCreate(1, sizeof(float));

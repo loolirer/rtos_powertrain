@@ -19,17 +19,12 @@ EventGroupHandle_t wifi_event_group;
 int main() {
     stdio_init_all();
     init_motor_hardware();
-
+    start_motor_control_timer();
+    
     wifi_event_group = xEventGroupCreate();
-
     xTaskCreate(wifi_manager_task, WIFI_MANAGER_TASK, 1024, NULL, 3, &wifi_manager_handle);
     xTaskCreate(setpoint_task, SETPOINT_TASK, 1024, (void*)MotorControls, 2, NULL);
     xTaskCreate(telemetry_task, TELEMETRY_TASK, 1024, (void*)MotorControls, 1, NULL);
-
-    for(int i = 0; i < N_MOTORS; i++) {
-        xTaskCreate(motor_controller_task, MOTOR_CONTROLLER_TASK, 512, &MotorControls[i], 4, NULL);
-    }
-
     vTaskStartScheduler();
 
     for( ; ; ) {}
